@@ -1,4 +1,4 @@
 streamlit
-openai
 google-genai
-firebase-admin
+gspread
+google-auth
