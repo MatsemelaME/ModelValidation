@@ -5,30 +5,26 @@ from datetime import datetime
 from google import genai
 
 # --- Configuration & Setup ---
-JSON_DB_FILE = "history.json"
 
 # Mapping user-friendly names to actual API model IDs
-MODEL_MAPPING = {        
-    # Using gemini-1.5-pro as the working standard. 
-    # Change "gemini-1.5-pro" to "gemini-3-pro-preview" if/when available.
+MODEL_MAPPING = {
     "Gemini3 pro": "gemini-3-pro-preview", 
+    # Add other models here when available
 }
+
+# Key for storing history in Streamlit Session State
+HISTORY_KEY = "chat_history"
 
 # --- Helper Functions ---
 
-def load_history():
-    """Loads the history from the JSON file. Returns an empty list if file doesn't exist."""
-    if not os.path.exists(JSON_DB_FILE):
-        return []
-    try:
-        with open(JSON_DB_FILE, "r") as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        return []
+def initialize_history():
+    """Initializes the history list in Streamlit's Session State."""
+    if HISTORY_KEY not in st.session_state:
+        # History is a list of interaction dictionaries
+        st.session_state[HISTORY_KEY] = []
 
-def save_interaction(model_name, prompt, response):
-    """Appends a new interaction to the JSON file."""
-    history = load_history()
+def save_interaction_to_session(model_name, prompt, response):
+    """Appends a new interaction to the Session State history."""
     
     entry = {
         "timestamp": datetime.now().isoformat(),
@@ -37,22 +33,35 @@ def save_interaction(model_name, prompt, response):
         "response": response
     }
     
-    history.append(entry)
+    st.session_state[HISTORY_KEY].append(entry)
     
-    with open(JSON_DB_FILE, "w") as f:
-        json.dump(history, f, indent=4)
+    # --- IMPORTANT NOTE ON PERSISTENCE ---
+    # To truly save data across restarts and all users, 
+    # the code below would replace the line above, connecting to a database:
+    # 
+    # try:
+    #     save_to_database(entry) 
+    #     st.success("Interaction saved to persistent DB.")
+    # except Exception as e:
+    #     st.error(f"Failed to save to persistent DB: {e}")
 
-def get_ai_response(model_selection, user_prompt):
+
+def get_ai_response(model_selection, user_prompt): 
     """Routes the prompt to the correct API based on selection."""
-    
-    # We assume secrets.toml still has [api_keys] -> google = "..."
-    api_keys = st.secrets["api_keys"]
-    
+
+    # Ensure API keys are loaded from secrets.toml
     try:
-        if model_selection == "Gemini3 pro":
-            client = genai.Client(api_key=api_keys["google"])
+        api_key = st.secrets["api_keys"]["google"]
+    except KeyError:
+        return "Error: Gemini API key not found in `st.secrets['api_keys']['google']`."
+
+    try:
+        if model_selection in MODEL_MAPPING:
+            client = genai.Client(api_key=api_key)
+            model_id = MODEL_MAPPING[model_selection]
+
             response = client.models.generate_content(
-                model=MODEL_MAPPING[model_selection],
+                model=model_id,
                 contents=user_prompt
             )
             return response.text
@@ -64,35 +73,61 @@ def get_ai_response(model_selection, user_prompt):
 
 # --- Streamlit Interface ---
 
-st.title("Gemini Interface")
+# Initialize the history when the app loads
+initialize_history()
 
-# 1. Model Selection
-# kept as a selectbox so you can easily add the others back later
-selected_label = st.selectbox(
-    "Select AI Model",
-    options=list(MODEL_MAPPING.keys())
+st.title("🤖 Gemini Interface")
+st.markdown("---")
+
+### 1. Model Configuration
+
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    selected_label = st.selectbox(
+        "Select AI Model",
+        options=list(MODEL_MAPPING.keys()),
+        help="Choose the desired Gemini model for generation."
+    )
+
+### 2. User Input Area
+
+user_prompt = st.text_area(
+    "💬 Enter your prompt:", 
+    height=150,
+    placeholder="Ask Gemini anything..."
 )
 
-# 2. User Input
-user_prompt = st.text_area("Enter your prompt:", height=150)
-
 # 3. Generate Button
-if st.button("Generate Response"):
+if st.button("🚀 Generate Response", type="primary"):
     if not user_prompt.strip():
-        st.warning("Please enter a prompt first.")
+        st.warning("Please enter a prompt before generating a response.")
     else:
         with st.spinner(f"Asking {selected_label}..."):
             # Get response from the actual API
             ai_reply = get_ai_response(selected_label, user_prompt)
             
             # Display response
-            st.markdown("### Response")
-            st.write(ai_reply)
+            st.markdown("### ✨ Response")
+            st.code(ai_reply, language="markdown") # Use code block for clean formatting
             
-            # Save to JSON DB
-            save_interaction(selected_label, user_prompt, ai_reply)
-            st.success("Interaction saved to database.")
+            # Save to Session State
+            save_interaction_to_session(selected_label, user_prompt, ai_reply)
+            st.success("Interaction saved to current session history.")
 
-# Optional: View Database (for debugging/admin)
-with st.expander("View Request History (Admin Only)"):
-    st.json(load_history())
+st.markdown("---")
+
+### Optional: View History (Admin/Debugging)
+
+with st.expander("View Current Session History"):
+    history = st.session_state[HISTORY_KEY]
+    
+    if not history:
+        st.info("No interactions recorded in this session yet.")
+    else:
+        # Display history in reverse chronological order
+        for i, entry in enumerate(reversed(history)):
+            st.markdown(f"**{len(history) - i}. Timestamp:** `{entry['timestamp'][:19]}` | **Model:** `{entry['model']}`")
+            st.markdown(f"**Prompt:** *{entry['prompt'][:80]}...*")
+            st.code(entry['response'][:150] + "...", language="markdown")
+            st.markdown("---")
