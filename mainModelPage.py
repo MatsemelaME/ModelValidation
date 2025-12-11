@@ -4,56 +4,79 @@ import os
 from datetime import datetime
 from google import genai
 
+# --- Firebase Imports ---
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
+
 # --- Configuration & Setup ---
 
-# Mapping user-friendly names to actual API model IDs
 MODEL_MAPPING = {
-    "Gemini3 pro": "gemini-3-pro-preview", 
-    # Add other models here when available
+    "Gemini 1.5 Pro": "gemini-1.5-pro", 
+    # Updated to a currently active model ID for testing
 }
 
-# Key for storing history in Streamlit Session State
-HISTORY_KEY = "chat_history"
+# --- Database Connection ---
+
+@st.cache_resource
+def get_db():
+    """
+    Initializes Firebase only once. 
+    Using cache_resource ensures we don't reconnect on every rerun.
+    """
+    try:
+        # Check if app is already initialized to avoid "App already exists" error
+        if not firebase_admin._apps:
+            # Create a credential object from the secrets dictionary
+            cred_dict = dict(st.secrets["firebase"])
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        
+        return firestore.client()
+    except Exception as e:
+        st.error(f"Failed to initialize Firebase: {e}")
+        return None
+
+# Initialize DB
+db = get_db()
 
 # --- Helper Functions ---
 
-def initialize_history():
-    """Initializes the history list in Streamlit's Session State."""
-    if HISTORY_KEY not in st.session_state:
-        # History is a list of interaction dictionaries
-        st.session_state[HISTORY_KEY] = []
-
-def save_interaction_to_session(model_name, prompt, response):
-    """Appends a new interaction to the Session State history."""
+def save_interaction_to_firebase(model_name, prompt, response):
+    """Saves the interaction to Firestore."""
     
+    if db is None:
+        st.error("Database connection not active.")
+        return
+
     entry = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(), # Firestore handles datetime objects natively
         "model": model_name,
         "prompt": prompt,
         "response": response
     }
     
-    st.session_state[HISTORY_KEY].append(entry)
-    
-    # --- IMPORTANT NOTE ON PERSISTENCE ---
-    # To truly save data across restarts and all users, 
-    # the code below would replace the line above, connecting to a database:
-    # 
-    # try:
-    #     save_to_database(entry) 
-    #     st.success("Interaction saved to persistent DB.")
-    # except Exception as e:
-    #     st.error(f"Failed to save to persistent DB: {e}")
-
+    try:
+        # 'history' is the name of your collection in Firestore
+        db.collection("history").add(entry)
+        
+        # We also keep it in session state for immediate display without re-fetching
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []
+        
+        # Convert datetime to string for session state display
+        display_entry = entry.copy()
+        display_entry["timestamp"] = entry["timestamp"].isoformat()
+        st.session_state["chat_history"].append(display_entry)
+        
+    except Exception as e:
+        st.error(f"Failed to save to Firebase: {e}")
 
 def get_ai_response(model_selection, user_prompt): 
-    """Routes the prompt to the correct API based on selection."""
-
-    # Ensure API keys are loaded from secrets.toml
     try:
         api_key = st.secrets["api_keys"]["google"]
     except KeyError:
-        return "Error: Gemini API key not found in `st.secrets['api_keys']['google']`."
+        return "Error: Gemini API key not found in secrets."
 
     try:
         if model_selection in MODEL_MAPPING:
@@ -66,17 +89,17 @@ def get_ai_response(model_selection, user_prompt):
             )
             return response.text
         else:
-            return "Error: Selected model not configured in backend."
+            return "Error: Selected model not configured."
 
     except Exception as e:
         return f"Error calling API: {str(e)}"
 
 # --- Streamlit Interface ---
 
-# Initialize the history when the app loads
-initialize_history()
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
 
-st.title("🤖 Gemini Interface")
+st.title("🤖 Gemini + Firebase Logger")
 st.markdown("---")
 
 ### 1. Model Configuration
@@ -86,8 +109,7 @@ col1, col2 = st.columns([1, 2])
 with col1:
     selected_label = st.selectbox(
         "Select AI Model",
-        options=list(MODEL_MAPPING.keys()),
-        help="Choose the desired Gemini model for generation."
+        options=list(MODEL_MAPPING.keys())
     )
 
 ### 2. User Input Area
@@ -101,33 +123,31 @@ user_prompt = st.text_area(
 # 3. Generate Button
 if st.button("🚀 Generate Response", type="primary"):
     if not user_prompt.strip():
-        st.warning("Please enter a prompt before generating a response.")
+        st.warning("Please enter a prompt.")
     else:
         with st.spinner(f"Asking {selected_label}..."):
-            # Get response from the actual API
             ai_reply = get_ai_response(selected_label, user_prompt)
             
-            # Display response
             st.markdown("### ✨ Response")
-            st.code(ai_reply, language="markdown") # Use code block for clean formatting
+            st.code(ai_reply, language="markdown")
             
-            # Save to Session State
-            save_interaction_to_session(selected_label, user_prompt, ai_reply)
-            st.success("Interaction saved to current session history.")
+            # Save to Firebase
+            save_interaction_to_firebase(selected_label, user_prompt, ai_reply)
+            st.success("Saved to Firestore Database!")
 
 st.markdown("---")
 
-### Optional: View History (Admin/Debugging)
+### Optional: View History
+# This currently views Session State. 
+# You could modify this to fetch db.collection("history").stream() to see ALL users' history.
 
 with st.expander("View Current Session History"):
-    history = st.session_state[HISTORY_KEY]
+    history = st.session_state["chat_history"]
     
     if not history:
-        st.info("No interactions recorded in this session yet.")
+        st.info("No interactions in this session.")
     else:
-        # Display history in reverse chronological order
         for i, entry in enumerate(reversed(history)):
-            st.markdown(f"**{len(history) - i}. Timestamp:** `{entry['timestamp'][:19]}` | **Model:** `{entry['model']}`")
+            st.markdown(f"**{len(history) - i}. Time:** `{entry['timestamp']}`")
             st.markdown(f"**Prompt:** *{entry['prompt'][:80]}...*")
-            st.code(entry['response'][:150] + "...", language="markdown")
-            st.markdown("---")
+            st.caption("---")
