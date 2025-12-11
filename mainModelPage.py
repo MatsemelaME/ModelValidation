@@ -1,79 +1,82 @@
 import streamlit as st
-import json
-import os
+import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime
 from google import genai
 
-# --- Firebase Imports ---
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+# --- Configuration ---
 
-# --- Configuration & Setup ---
+SHEET_NAME = "Gemini Logs"  # Make sure your actual Google Sheet has this EXACT name
 
-# REVERTED: Kept your original model mapping
 MODEL_MAPPING = {
     "gemini-3-pro-preview": "gemini-3-pro-preview", 
-    # Updated to a currently active model ID for testing
+    # Add other models here
 }
 
-# --- Database Connection ---
+# --- Google Sheets Connection ---
 
 @st.cache_resource
-def get_db():
+def get_sheet_connection():
     """
-    Initializes Firebase only once. 
-    Using cache_resource ensures we don't reconnect on every rerun.
+    Authenticates with Google Sheets using Streamlit secrets
+    and opens the specific spreadsheet.
     """
+    # Define the scope - what we are allowed to do
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
     try:
-        # Check if app is already initialized to avoid "App already exists" error
-        if not firebase_admin._apps:
-            # Create a credential object from the secrets dictionary
-            cred_dict = dict(st.secrets["firebase"])
-            cred = credentials.Certificate(cred_dict)
-            firebase_admin.initialize_app(cred)
+        # Load credentials from secrets.toml
+        s_account_info = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(
+            s_account_info, scopes=scopes
+        )
         
-        return firestore.client()
+        # Authorize the client
+        client = gspread.authorize(creds)
+        
+        # Open the sheet
+        sheet = client.open(SHEET_NAME).sheet1
+        return sheet
+        
     except Exception as e:
-        st.error(f"Failed to initialize Firebase: {e}")
+        st.error(f"❌ Connection Error: {e}")
+        st.info("💡 Hint: Did you share the Google Sheet with the Service Account email address?")
         return None
 
-# Initialize DB
-db = get_db()
+# Initialize Sheet
+sheet = get_sheet_connection()
 
 # --- Helper Functions ---
 
-# UPDATED: Added user_id parameter
-def save_interaction_to_firebase(user_id, model_name, prompt, response):
-    """Saves the interaction to Firestore with the User ID."""
-    
-    if db is None:
-        st.error("Database connection not active.")
+def save_to_google_sheets(user_id, model_name, prompt, response):
+    """Appends a new row to the Google Sheet."""
+    if sheet is None:
         return
 
-    entry = {
-        "user_id": user_id,          # <--- Captured User ID
-        "timestamp": datetime.now(), # Firestore handles datetime objects natively
-        "model": model_name,
-        "prompt": prompt,
-        "response": response
-    }
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # The order here must match your Sheet's columns
+    row_data = [user_id, timestamp, model_name, prompt, response]
     
     try:
-        # 'history' is the name of your collection in Firestore
-        db.collection("history").add(entry)
+        sheet.append_row(row_data)
         
-        # We also keep it in session state for immediate display without re-fetching
+        # Update session state for immediate display
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
-        
-        # Convert datetime to string for session state display
-        display_entry = entry.copy()
-        display_entry["timestamp"] = entry["timestamp"].isoformat()
-        st.session_state["chat_history"].append(display_entry)
+            
+        st.session_state["chat_history"].append({
+            "user_id": user_id,
+            "timestamp": timestamp,
+            "prompt": prompt,
+            "response": response
+        })
         
     except Exception as e:
-        st.error(f"Failed to save to Firebase: {e}")
+        st.error(f"Failed to write to Sheet: {e}")
 
 def get_ai_response(model_selection, user_prompt): 
     try:
@@ -102,19 +105,18 @@ def get_ai_response(model_selection, user_prompt):
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
-st.title("🤖 Gemini + Firebase Logger")
+st.title("🤖 Gemini + Google Sheets Logger")
 st.markdown("---")
 
-### 1. Configuration (User ID & Model)
+### 1. Configuration
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    # UPDATED: Added User ID Input Field
     user_id_input = st.text_input(
         "👤 User ID", 
         placeholder="e.g., student_123",
-        help="This ID will be saved with your prompt logs."
+        help="This ID will be saved to the Google Sheet."
     )
     
     selected_label = st.selectbox(
@@ -122,7 +124,7 @@ with col1:
         options=list(MODEL_MAPPING.keys())
     )
 
-### 2. User Input Area
+### 2. User Input
 
 user_prompt = st.text_area(
     "💬 Enter your prompt:", 
@@ -132,25 +134,28 @@ user_prompt = st.text_area(
 
 # 3. Generate Button
 if st.button("🚀 Generate Response", type="primary"):
-    # UPDATED: Validation checks
     if not user_id_input.strip():
-        st.error("⚠️ Please enter a User ID before generating.")
+        st.error("⚠️ Please enter a User ID.")
     elif not user_prompt.strip():
         st.warning("⚠️ Please enter a prompt.")
     else:
         with st.spinner(f"Asking {selected_label}..."):
+            # 1. Get AI Response
             ai_reply = get_ai_response(selected_label, user_prompt)
             
+            # 2. Display
             st.markdown("### ✨ Response")
             st.code(ai_reply, language="markdown")
             
-            # UPDATED: Save to Firebase with user_id_input
-            save_interaction_to_firebase(user_id_input, selected_label, user_prompt, ai_reply)
-            st.success(f"Saved to Firestore for user: {user_id_input}!")
+            # 3. Save to Google Sheets
+            save_to_google_sheets(user_id_input, selected_label, user_prompt, ai_reply)
+            st.success(f"✅ Logged to Google Sheet: {SHEET_NAME}")
 
 st.markdown("---")
 
 ### Optional: View History
+# Note: Fetching from Sheets can be slow if it's huge, so we usually rely on Session State
+# or fetch only the last few rows if needed.
 
 with st.expander("View Current Session History"):
     history = st.session_state["chat_history"]
@@ -159,7 +164,6 @@ with st.expander("View Current Session History"):
         st.info("No interactions in this session.")
     else:
         for i, entry in enumerate(reversed(history)):
-            # Displaying User ID in history
-            st.markdown(f"**{len(history) - i}. User:** `{entry.get('user_id', 'Unknown')}` | **Time:** `{entry['timestamp']}`")
+            st.markdown(f"**{len(history) - i}. User:** `{entry['user_id']}` | **Time:** `{entry['timestamp']}`")
             st.markdown(f"**Prompt:** *{entry['prompt'][:80]}...*")
             st.caption("---")
