@@ -1,20 +1,17 @@
-
 import streamlit as st
 import json
 import os
 from datetime import datetime
-from openai import OpenAI
 from google import genai
 
 # --- Configuration & Setup ---
 JSON_DB_FILE = "history.json"
 
 # Mapping user-friendly names to actual API model IDs
-# Update these IDs as new models (like GPT-5) become available
-MODEL_MAPPING = {
-    "ChatGpt5": "gpt-4o",         # Placeholder for GPT-5
-    "Gemini3 pro": "gemini-1.5-pro", # Placeholder for Gemini 3
-    "GrokAI": "grok-beta"         # Placeholder for Grok
+MODEL_MAPPING = {        
+    # Using gemini-1.5-pro as the working standard. 
+    # Change "gemini-1.5-pro" to "gemini-3-pro-preview" if/when available.
+    "Gemini3 pro": "gemini-3-pro-preview", 
 }
 
 # --- Helper Functions ---
@@ -48,46 +45,29 @@ def save_interaction(model_name, prompt, response):
 def get_ai_response(model_selection, user_prompt):
     """Routes the prompt to the correct API based on selection."""
     
+    # We assume secrets.toml still has [api_keys] -> google = "..."
     api_keys = st.secrets["api_keys"]
     
     try:
-        if model_selection == "ChatGpt5":
-            client = OpenAI(api_key=api_keys["openai"])
-            completion = client.chat.completions.create(
-                model=MODEL_MAPPING[model_selection],
-                messages=[{"role": "user", "content": user_prompt}]
-            )
-            return completion.choices[0].message.content
-
-        elif model_selection == "Gemini3 pro":
+        if model_selection == "Gemini3 pro":
             client = genai.Client(api_key=api_keys["google"])
             response = client.models.generate_content(
                 model=MODEL_MAPPING[model_selection],
                 contents=user_prompt
             )
             return response.text
+        else:
+            return "Error: Selected model not configured in backend."
 
-        elif model_selection == "GrokAI":
-            # xAI is compatible with the OpenAI SDK, just needs a different base URL
-            client = OpenAI(
-                api_key=api_keys["xai"],
-                base_url="https://api.x.ai/v1"
-            )
-            completion = client.chat.completions.create(
-                model=MODEL_MAPPING[model_selection],
-                messages=[{"role": "system", "content": "You are Grok."},
-                          {"role": "user", "content": user_prompt}]
-            )
-            return completion.choices[0].message.content
-            
     except Exception as e:
         return f"Error calling API: {str(e)}"
 
 # --- Streamlit Interface ---
 
-st.title("Multi-Model AI Interface")
+st.title("Gemini Interface")
 
 # 1. Model Selection
+# kept as a selectbox so you can easily add the others back later
 selected_label = st.selectbox(
     "Select AI Model",
     options=list(MODEL_MAPPING.keys())
