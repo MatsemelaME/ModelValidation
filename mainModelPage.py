@@ -6,11 +6,9 @@ from google import genai
 
 # --- Configuration ---
 
-SHEET_NAME = "Gemini Logs"  # Make sure your actual Google Sheet has this EXACT name
-
+SHEET_NAME = "Gemini Logs" 
 MODEL_MAPPING = {
-    "gemini-3-pro-preview": "gemini-3-pro-preview", 
-    # Add other models here
+    "gemini-3-pro-preview": "gemini-3-pro-preview"
 }
 
 # --- Google Sheets Connection ---
@@ -21,32 +19,24 @@ def get_sheet_connection():
     Authenticates with Google Sheets using Streamlit secrets
     and opens the specific spreadsheet.
     """
-    # Define the scope - what we are allowed to do
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
 
     try:
-        # Load credentials from secrets.toml
         s_account_info = st.secrets["gcp_service_account"]
         creds = Credentials.from_service_account_info(
             s_account_info, scopes=scopes
         )
-        
-        # Authorize the client
         client = gspread.authorize(creds)
-        
-        # Open the sheet
         sheet = client.open(SHEET_NAME).sheet1
         return sheet
         
     except Exception as e:
         st.error(f"❌ Connection Error: {e}")
-        st.info("💡 Hint: Did you share the Google Sheet with the Service Account email address?")
         return None
 
-# Initialize Sheet
 sheet = get_sheet_connection()
 
 # --- Helper Functions ---
@@ -57,14 +47,12 @@ def save_to_google_sheets(user_id, model_name, prompt, response):
         return
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # The order here must match your Sheet's columns
     row_data = [user_id, timestamp, model_name, prompt, response]
     
     try:
         sheet.append_row(row_data)
         
-        # Update session state for immediate display
+        # Update history
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
             
@@ -102,14 +90,23 @@ def get_ai_response(model_selection, user_prompt):
 
 # --- Streamlit Interface ---
 
+# 1. Initialize Session State Variables
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
+
+# This variable holds the text inside the text_area
+if "prompt_input" not in st.session_state:
+    st.session_state["prompt_input"] = ""
+
+# This variable holds the very last response for the "I don't understand" button
+if "last_response" not in st.session_state:
+    st.session_state["last_response"] = None
+
 
 st.title("🤖 Gemini + Google Sheets Logger")
 st.markdown("---")
 
-### 1. Configuration
-
+### Configuration Area
 col1, col2 = st.columns([1, 2])
 
 with col1:
@@ -124,15 +121,16 @@ with col1:
         options=list(MODEL_MAPPING.keys())
     )
 
-### 2. User Input
-
+### User Input Area
+# We use key="prompt_input" so we can modify this text box programmatically
 user_prompt = st.text_area(
     "💬 Enter your prompt:", 
     height=150,
-    placeholder="Ask Gemini anything..."
+    placeholder="Ask Gemini anything...",
+    key="prompt_input" 
 )
 
-# 3. Generate Button
+# Generate Button
 if st.button("🚀 Generate Response", type="primary"):
     if not user_id_input.strip():
         st.error("⚠️ Please enter a User ID.")
@@ -143,20 +141,44 @@ if st.button("🚀 Generate Response", type="primary"):
             # 1. Get AI Response
             ai_reply = get_ai_response(selected_label, user_prompt)
             
-            # 2. Display
-            st.markdown("### ✨ Response")
-            st.code(ai_reply, language="markdown")
+            # 2. Store response in session state for the "I don't understand" button
+            st.session_state["last_response"] = ai_reply
             
-            # 3. Save to Google Sheets
+            # 3. Display
+            st.markdown("### ✨ Response")
+            st.markdown(ai_reply) # Changed from st.code to st.markdown for better readability
+            
+            # 4. Save to Google Sheets
             save_to_google_sheets(user_id_input, selected_label, user_prompt, ai_reply)
             st.success(f"✅ Logged to Google Sheet: {SHEET_NAME}")
 
+# --- The "I Don't Understand" Button Logic ---
+
+# We only show this section if there was a previous response
+if st.session_state["last_response"]:
+    st.markdown("---")
+    st.write("Need clarification?")
+    
+    if st.button("I don't understand this"):
+        # 1. Define the wrapper text
+        explanation_request = (
+            "I dont understand this - please could you explain it in more detail - "
+            "the user is an english speaker and is trying to understand afrikaans "
+            "so help them understand."
+        )
+        
+        # 2. Combine the request with the previous output
+        new_prompt_text = f"{explanation_request}\n\n---\n\n{st.session_state['last_response']}"
+        
+        # 3. Update the prompt input box via session state
+        st.session_state["prompt_input"] = new_prompt_text
+        
+        # 4. Rerun to show the text in the input box immediately
+        st.rerun()
+
 st.markdown("---")
 
-### Optional: View History
-# Note: Fetching from Sheets can be slow if it's huge, so we usually rely on Session State
-# or fetch only the last few rows if needed.
-
+### View History
 with st.expander("View Current Session History"):
     history = st.session_state["chat_history"]
     
