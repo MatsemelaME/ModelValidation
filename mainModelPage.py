@@ -11,6 +11,7 @@ from firebase_admin import firestore
 
 # --- Configuration & Setup ---
 
+# REVERTED: Kept your original model mapping
 MODEL_MAPPING = {
     "gemini-3-pro-preview": "gemini-3-pro-preview", 
     # Updated to a currently active model ID for testing
@@ -42,14 +43,16 @@ db = get_db()
 
 # --- Helper Functions ---
 
-def save_interaction_to_firebase(model_name, prompt, response):
-    """Saves the interaction to Firestore."""
+# UPDATED: Added user_id parameter
+def save_interaction_to_firebase(user_id, model_name, prompt, response):
+    """Saves the interaction to Firestore with the User ID."""
     
     if db is None:
         st.error("Database connection not active.")
         return
 
     entry = {
+        "user_id": user_id,          # <--- Captured User ID
         "timestamp": datetime.now(), # Firestore handles datetime objects natively
         "model": model_name,
         "prompt": prompt,
@@ -102,11 +105,18 @@ if "chat_history" not in st.session_state:
 st.title("🤖 Gemini + Firebase Logger")
 st.markdown("---")
 
-### 1. Model Configuration
+### 1. Configuration (User ID & Model)
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
+    # UPDATED: Added User ID Input Field
+    user_id_input = st.text_input(
+        "👤 User ID", 
+        placeholder="e.g., student_123",
+        help="This ID will be saved with your prompt logs."
+    )
+    
     selected_label = st.selectbox(
         "Select AI Model",
         options=list(MODEL_MAPPING.keys())
@@ -122,8 +132,11 @@ user_prompt = st.text_area(
 
 # 3. Generate Button
 if st.button("🚀 Generate Response", type="primary"):
-    if not user_prompt.strip():
-        st.warning("Please enter a prompt.")
+    # UPDATED: Validation checks
+    if not user_id_input.strip():
+        st.error("⚠️ Please enter a User ID before generating.")
+    elif not user_prompt.strip():
+        st.warning("⚠️ Please enter a prompt.")
     else:
         with st.spinner(f"Asking {selected_label}..."):
             ai_reply = get_ai_response(selected_label, user_prompt)
@@ -131,15 +144,13 @@ if st.button("🚀 Generate Response", type="primary"):
             st.markdown("### ✨ Response")
             st.code(ai_reply, language="markdown")
             
-            # Save to Firebase
-            save_interaction_to_firebase(selected_label, user_prompt, ai_reply)
-            st.success("Saved to Firestore Database!")
+            # UPDATED: Save to Firebase with user_id_input
+            save_interaction_to_firebase(user_id_input, selected_label, user_prompt, ai_reply)
+            st.success(f"Saved to Firestore for user: {user_id_input}!")
 
 st.markdown("---")
 
 ### Optional: View History
-# This currently views Session State. 
-# You could modify this to fetch db.collection("history").stream() to see ALL users' history.
 
 with st.expander("View Current Session History"):
     history = st.session_state["chat_history"]
@@ -148,6 +159,7 @@ with st.expander("View Current Session History"):
         st.info("No interactions in this session.")
     else:
         for i, entry in enumerate(reversed(history)):
-            st.markdown(f"**{len(history) - i}. Time:** `{entry['timestamp']}`")
+            # Displaying User ID in history
+            st.markdown(f"**{len(history) - i}. User:** `{entry.get('user_id', 'Unknown')}` | **Time:** `{entry['timestamp']}`")
             st.markdown(f"**Prompt:** *{entry['prompt'][:80]}...*")
             st.caption("---")
