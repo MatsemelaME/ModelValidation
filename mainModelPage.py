@@ -13,10 +13,6 @@ MODEL_MAPPING = {
 
 # --- Dummy Translation Function ---
 def translate_text(text, lang):
-    """
-    Temporary placeholder to avoid errors.
-    Replace with actual model or API translation.
-    """
     if lang == "af":
         return "AFRIKAANS: " + text
     return text  # English default
@@ -154,12 +150,6 @@ with st.container():
         system_instruction_input = st.text_area(
             "🛠️ System Instruction", value=default_system_msg, height=150
         )
-
-# Additional Rules
-rules_input = st.text_area("📘 Add Additional Rules", height=150)
-if st.button("💾 Save Rules"):
-    st.session_state["stored_rules"] = rules_input
-    st.success("Rules saved successfully!")
 
 # ------------------------------------------------------------
 #           LANGUAGE SELECTION
