@@ -187,6 +187,8 @@ with st.container():
         #    help="This tells the AI how to behave (e.g., 'You are a strict teacher')."
         #)
 
+        system_instruction_input = "You are a helpful Afrikaans language tutor. " + "Explain answers in simple English first, then provide the Afrikaans translation. " + "Always reference the STOMPI rule when correcting sentence structure."
+
 # 3. Display Chat History
 for message in st.session_state["messages"]:
     with st.chat_message(message["role"]):
