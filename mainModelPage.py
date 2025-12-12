@@ -161,6 +161,13 @@ language_options = [
 selected_language = st.selectbox("🌍 Choose output language", language_options, index=0)
 allowed_languages = ["English", "Afrikaans"]
 
+# Custom message for unsupported languages
+unsupported_msg = st.text_area(
+    "✏️ Message for unsupported languages",
+    value="I will translate whatever you write in both English and Afrikaans.",
+    height=80,
+)
+
 # ------------------------------------------------------------
 # Chat Input
 # ------------------------------------------------------------
@@ -199,7 +206,7 @@ if final_prompt:
 
             # LANGUAGE FILTER
             if selected_language not in allowed_languages:
-                final_output = "⚠️ I can’t assist you with this language. I only translate Afrikaans and English."
+                final_output = unsupported_msg
             else:
                 lang_code = "af" if selected_language == "Afrikaans" else "en"
                 final_output = translate_text(response_en, lang_code)
