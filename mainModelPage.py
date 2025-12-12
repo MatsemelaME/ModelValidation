@@ -180,7 +180,7 @@ with st.container():
             "Always reference the STOMPI rule when correcting sentence structure."
         )
         system_instruction_input = st.text_area(
-            "🛠️ System Instruction (Persona)", 
+            "🛠️ System Instruction ()", 
             value=default_system_msg,
             height=150,
             help="This tells the AI how to behave (e.g., 'You are a strict teacher')."
