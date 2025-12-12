@@ -98,6 +98,13 @@ def clear_chat_history():
     st.session_state["messages"] = []
     st.session_state["auto_execute_clarification"] = False
 
+# Function for Elaborate Further
+def elaborate_further():
+    if st.session_state["messages"] and st.session_state["messages"][-1]["role"] == "assistant":
+        st.session_state["auto_execute_clarification"] = True
+    else:
+        st.warning("⚠️ The question you’ve asked is out of context, I cannot elaborate further.")
+
 # ------------------------------------------------------------
 #                STREAMLIT INTERFACE
 # ------------------------------------------------------------
@@ -224,6 +231,12 @@ if final_prompt:
             is_clarification
         )
 
-# Clarification button
+# ------------------------------------------------------------
+# Clarification & Elaborate Further Buttons
+# ------------------------------------------------------------
 if st.session_state["messages"] and st.session_state["messages"][-1]["role"] == "assistant":
-    st.button("🤔 I don't understand this", on_click=trigger_clarification)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.button("🤔 I don't understand this", on_click=trigger_clarification)
+    with col2:
+        st.button("📝 Elaborate Further", on_click=elaborate_further)
