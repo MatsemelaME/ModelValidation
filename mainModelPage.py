@@ -195,6 +195,23 @@ rules_input = st.text_area(
 if st.button("💾 Save Rules"):
     st.session_state["stored_rules"] = rules_input
     st.success("Rules saved successfully!")
+    language_options = ["Afrikaans", "Zulu", "Xhosa", "Sesotho", "Tswana", "Xitsonga", "French", "German"]
+
+selected_language = st.selectbox(
+    "🌍 Choose output language",
+    language_options,
+    index=0  # Default: Afrikaans
+    allowed_languages = ["English", "Afrikaans"]
+
+  if selected_language not in allowed_languages:
+    st.warning("⚠️ I can’t assist you with this language. I only translate Afrikaans and English.")
+else:
+    # Translate only if allowed
+    lang_code = "af" if selected_language == "Afrikaans" else "en"
+    response_translated = translate_text(response_en, lang_code)
+
+    st.subheader(f"Response in {selected_language}:")
+    st.write(response_translated)  
 # 3. Display Chat History
 for message in st.session_state["messages"]:
     with st.chat_message(message["role"]):
