@@ -180,12 +180,21 @@ with st.container():
             "Always reference the STOMPI rule when correcting sentence structure."
         )
         system_instruction_input = st.text_area(
-            "🛠️ System Instruction ()", 
+            "🛠️ System Instruction", 
             value=default_system_msg,
             height=150,
             help="This tells the AI how to behave (e.g., 'You are a strict teacher')."
         )
+rules_input = st.text_area(
+    "📘 Add Additional Rules",
+    placeholder="Write rules you want the AI to follow…",
+    height=150,
+)
 
+# Button to save rules
+if st.button("💾 Save Rules"):
+    st.session_state["stored_rules"] = rules_input
+    st.success("Rules saved successfully!")
 # 3. Display Chat History
 for message in st.session_state["messages"]:
     with st.chat_message(message["role"]):
